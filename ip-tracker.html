@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IP Infringement Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f11;
+    --surface: #18181c;
+    --surface2: #212126;
+    --border: #2a2a30;
+    --text: #e8e8ec;
+    --muted: #666672;
+    --accent: #7c6ff7;
+    --accent2: #4fc8a0;
+    --todo: #666672;
+    --reported: #d4a017;
+    --blocked: #3f8ef5;
+    --rejected: #e05252;
+    --removed: #4dab6d;
+    --font: 'DM Sans', sans-serif;
+    --mono: 'DM Mono', monospace;
+  }
+
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; }
+
+  header { padding: 24px 32px 0; border-bottom: 1px solid var(--border); display: flex; align-items: flex-end; gap: 32px; }
+  .logo { font-size: 18px; font-weight: 600; letter-spacing: -0.5px; padding-bottom: 16px; }
+  .logo span { color: var(--accent); }
+
+  nav { display: flex; gap: 0; }
+  nav button { background: none; border: none; border-bottom: 2px solid transparent; padding: 10px 20px 14px; font-family: var(--font); font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; transition: color 0.15s; }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+
+  main { padding: 28px 32px; max-width: 1400px; }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* METRICS */
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .metric { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .metric-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .metric-val { font-size: 28px; font-weight: 600; letter-spacing: -1px; }
+  .metric-val.c-todo { color: var(--muted); }
+  .metric-val.c-reported { color: var(--reported); }
+  .metric-val.c-blocked { color: var(--blocked); }
+  .metric-val.c-rejected { color: var(--rejected); }
+  .metric-val.c-removed { color: var(--removed); }
+
+  /* ADD FORM */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; margin-bottom: 20px; }
+  .card-title { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 16px; }
+  .form-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  .form-row2 { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11px; color: var(--muted); font-weight: 500; }
+  input[type=text], select {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 7px;
+    color: var(--text); font-family: var(--font); font-size: 13px; padding: 8px 10px;
+    outline: none; transition: border-color 0.15s; width: 100%;
+  }
+  input[type=text]:focus, select:focus { border-color: var(--accent); }
+  select option { background: var(--surface2); }
+  .ref-hint { font-family: var(--mono); font-size: 11px; color: var(--accent2); margin-top: 3px; display: none; }
+
+  button.add-btn {
+    background: var(--accent); color: #fff; border: none; border-radius: 7px;
+    padding: 9px 18px; font-family: var(--font); font-size: 13px; font-weight: 500;
+    cursor: pointer; white-space: nowrap; transition: opacity 0.15s;
+  }
+  button.add-btn:hover { opacity: 0.85; }
+  button.sm-btn {
+    background: var(--surface2); color: var(--muted); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px; font-family: var(--font); font-size: 12px;
+    cursor: pointer; transition: color 0.15s;
+  }
+  button.sm-btn:hover { color: var(--text); }
+
+  /* SUBTABS */
+  .subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .subtab { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 4px 14px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .subtab:hover { color: var(--text); }
+  .subtab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* TABLE */
+  .table-wrap { overflow-x: auto; }
+  .tbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  .tbar-right { display: flex; gap: 8px; align-items: center; }
+  .count-badge { font-size: 12px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 1px solid #1e1e24; vertical-align: middle; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  tr:hover td { background: var(--surface2); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .del { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 15px; line-height: 1; }
+  .del:hover { background: #3a1818; color: var(--rejected); }
+
+  /* BADGE */
+  .badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px; }
+  .b-todo { background: #222228; color: var(--muted); }
+  .b-reported { background: #2d2410; color: var(--reported); }
+  .b-blocked { background: #101c30; color: var(--blocked); }
+  .b-rejected { background: #2a1212; color: var(--rejected); }
+  .b-removed { background: #0e2016; color: var(--removed); }
+
+  /* CHARTS */
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .chart-card h3 { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 16px; }
+  .chart-wrap { position: relative; height: 220px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .leg-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  .leg-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+  /* GAME FILTER */
+  .game-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 20px; }
+  .game-pill { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 5px 16px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; transition: all 0.15s; }
+  .game-pill:hover { color: var(--text); }
+  .game-pill.active { background: var(--surface2); border-color: var(--accent); color: var(--accent); }
+
+  .empty { text-align: center; padding: 48px; color: var(--muted); font-size: 14px; }
+
+  @media (max-width: 768px) {
+    header { padding: 16px 16px 0; flex-wrap: wrap; }
+    main { padding: 20px 16px; }
+    .form-grid { grid-template-columns: 1fr 1fr; }
+    .form-row2 { grid-template-columns: 1fr; }
+    .chart-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">IP<span>Track</span></div>
+  <nav>
+    <button class="active" onclick="switchTab('dashboard')">Dashboard</button>
+    <button onclick="switchTab('log')">Log Listing</button>
+    <button onclick="switchTab('data')">All Listings</button>
+    <button onclick="switchTab('charts')">Charts</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- DASHBOARD -->
+  <div id="tab-dashboard" class="panel active">
+    <div class="metrics" id="dash-metrics"></div>
+    <div class="game-pills" id="game-filter"></div>
+    <div class="card">
+      <div class="tbar">
+        <div class="card-title" style="margin:0">Recent listings</div>
+        <div class="tbar-right">
+          <span class="count-badge" id="dash-count"></span>
+          <button class="sm-btn" onclick="exportCSV('all')">Export CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap"><table id="dash-table"><thead><tr>
+        <th>Ref</th><th>Game</th><th>Marketplace</th><th>Type</th><th>Status</th><th>Notes</th><th></th>
+      </tr></thead><tbody id="dash-tbody"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div id="tab-log" class="panel">
+    <div class="card">
+      <div class="card-title">Add new listing</div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Listing URL</label>
+          <input type="text" id="inp-url" placeholder="Paste URL — ref extracted automatically" oninput="handleUrl()">
+          <div class="ref-hint" id="ref-hint"></div>
+        </div>
+        <div class="field">
+          <label>Marketplace</label>
+          <select id="inp-market" onchange="handleUrl()">
+            <optgroup label="Amazon">
+              <option>Amazon US</option><option>Amazon UK</option><option>Amazon EU</option>
+              <option>Amazon Canada</option><option>Amazon Australia</option>
+            </optgroup>
+            <optgroup label="Other">
+              <option>eBay</option><option>Alibaba</option><option>AliExpress</option>
+              <option>Walmart</option><option>Shein</option><option>Temu</option><option>Fruugo</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="field">
+          <label>Game</label>
+          <select id="inp-game">
+            <option>Grab the Mic</option><option>Snort Funny</option>
+            <option>Misheard Music</option><option>Sorry What?!</option><option>Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="inp-status">
+            <option>To do</option><option>Reported</option><option>Blocked</option>
+            <option>Rejected</option><option>Removed</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row2">
+        <div class="field">
+          <label>Reference no.</label>
+          <input type="text" id="inp-ref" placeholder="Auto-extracted or enter manually">
+        </div>
+        <div class="field">
+          <label>Type / Notes</label>
+          <input type="text" id="inp-type" placeholder="e.g. TM, copyright, brand abuse">
+        </div>
+        <button class="add-btn" onclick="addListing()">+ Add listing</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DATA -->
+  <div id="tab-data" class="panel">
+    <div class="subtabs" id="market-subtabs"></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="tbar" style="padding:16px 20px 0">
+        <span class="count-badge" id="data-count"></span>
+        <div class="tbar-right">
+          <button class="sm-btn" onclick="exportCSV(currentMarket)">Export CSV</button>
+        </div>
+      </div>
+      <div class="table-wrap" style="padding:0 0 4px">
+        <table><thead><tr>
+          <th>Ref</th><th>Game</th><th>Marketplace</th><th>Type</th><th>Status</th><th>Notes</th><th></th>
+        </tr></thead><tbody id="data-tbody"></tbody></table>
+        <div id="data-empty" class="empty" style="display:none">No listings for this marketplace.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div id="tab-charts" class="panel">
+    <div class="chart-grid">
+      <div class="chart-card">
+        <h3>By marketplace</h3>
+        <div class="chart-wrap"><canvas id="c-market"></canvas></div>
+        <div class="legend" id="leg-market"></div>
+      </div>
+      <div class="chart-card">
+        <h3>By status</h3>
+        <div class="chart-wrap"><canvas id="c-status"></canvas></div>
+        <div class="legend" id="leg-status"></div>
+      </div>
+    </div>
+    <div class="chart-grid">
+      <div class="chart-card">
+        <h3>Amazon regions breakdown</h3>
+        <div class="chart-wrap"><canvas id="c-amazon"></canvas></div>
+        <div class="legend" id="leg-amazon"></div>
+      </div>
+      <div class="chart-card">
+        <h3>By game</h3>
+        <div class="chart-wrap"><canvas id="c-game"></canvas></div>
+        <div class="legend" id="leg-game"></div>
+      </div>
+    </div>
+    <div id="charts-empty" class="empty" style="display:none">Add listings to generate charts.</div>
+  </div>
+
+</main>
+
+<script>
+// ── DATA ──────────────────────────────────────────────────────────────────────
+const SEED = [{"id":1,"ref":"B0G51J8ZTB","type":"no TM, no Copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon US","notes":"Blocked","url":""},{"id":2,"ref":"B0FXMSG1KT","type":"Our mic, no TM, no Copyright","status":"Removed","game":"Grab the Mic","market":"Amazon US","notes":"Reported Apr26, REMOVED","url":""},{"id":3,"ref":"B0FP241YL5","type":"no TM, no Copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon US","notes":"Blocked","url":""},{"id":4,"ref":"B0FB2TWKS9","type":"TM in product video title","status":"Rejected","game":"Grab the Mic","market":"Amazon US","notes":"Rejected Nov25, re-reported Apr26","url":""},{"id":5,"ref":"B0F8N39X3T","type":"no TM, no Copyright","status":"Rejected","game":"Grab the Mic","market":"Amazon US","notes":"Rejected Nov25","url":""},{"id":6,"ref":"B0FC6RSTZQ","type":"Our mic and board in orange","status":"Rejected","game":"Grab the Mic","market":"Amazon US","notes":"Rejected Nov25","url":""},{"id":7,"ref":"B0G5WK9PWV","type":"no TM, no Copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon US","notes":"Blocked","url":""},{"id":8,"ref":"B0FLKMSWF9","type":"no TM, no Copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon US","notes":"Blocked","url":""},{"id":9,"ref":"B0FF23K56V","type":"no TM, no Copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon US","notes":"Blocked","url":""},{"id":10,"ref":"B0G5X84JHP","type":"no TM, no Copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon US","notes":"Blocked","url":""},{"id":11,"ref":"B0G51QH6H8","type":"TM in listing","status":"Removed","game":"Grab the Mic","market":"Amazon US","notes":"Reported Apr26, REMOVED","url":""},{"id":12,"ref":"B0F8Q2C9WN","type":"no TM, no Copyright","status":"Rejected","game":"Grab the Mic","market":"Amazon US","notes":"Rejected Jun25","url":""},{"id":13,"ref":"B0FKYZQ9F6","type":"Our mic in purple","status":"Blocked","game":"Grab the Mic","market":"Amazon US","notes":"Blocked","url":""},{"id":14,"ref":"B0F66XHC7K","type":"Our mic, board and tokens","status":"Removed","game":"Grab the Mic","market":"Amazon US","notes":"Previously reported when counterfeit, relisted and removed box, rejected Nov25","url":""},{"id":15,"ref":"B0FW3XT3KN","type":"Misheard music TM, our mic in purple","status":"Rejected","game":"Grab the Mic","market":"Amazon US","notes":"Rejected Nov25, waiting on US TM","url":""},{"id":16,"ref":"B0FF42WKGD","type":"no TM, no Copyright, our tagline","status":"Rejected","game":"Grab the Mic","market":"Amazon US","notes":"Rejected Nov25","url":""},{"id":17,"ref":"B0FRSDBW91","type":"Name replaced with music note","status":"Rejected","game":"Grab the Mic","market":"Amazon US","notes":"TM accepted Dec25, relisted without TM, copyright rejected Dec25","url":""},{"id":18,"ref":"B0GRV3C699","type":"Oinkredible TM","status":"Blocked","game":"Snort Funny","market":"Amazon US","notes":"Blocked","url":""},{"id":19,"ref":"B0GV7N88VW","type":"no TM, no Copyright","status":"Blocked","game":"Snort Funny","market":"Amazon US","notes":"Blocked","url":""},{"id":20,"ref":"B0FPF5TQFN","type":"no TM, no Copyright","status":"Blocked","game":"Misheard Music","market":"Amazon US","notes":"Blocked","url":""},{"id":21,"ref":"B0FHGQH8LC","type":"no TM, no Copyright","status":"Blocked","game":"Sorry What?!","market":"Amazon US","notes":"Blocked","url":""},{"id":22,"ref":"B0G4C5CRZ9","type":"TM","status":"Rejected","game":"Sorry What?!","market":"Amazon US","notes":"Copyright rejected Apr26","url":""},{"id":23,"ref":"B0GF75RNVR","type":"no TM, no Copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon UK","notes":"Blocked","url":""},{"id":24,"ref":"B0G52Q9TLQ","type":"No TM, our mic in purple","status":"Removed","game":"Grab the Mic","market":"Amazon UK","notes":"Apr26 accepted, relisted with TM removed","url":""},{"id":25,"ref":"B0GKYX9CD9","type":"no TM, no Copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon UK","notes":"Blocked","url":""},{"id":26,"ref":"B0FV27YLHT","type":"No TM, our mic in purple","status":"Blocked","game":"Grab the Mic","market":"Amazon UK","notes":"Blocked","url":""},{"id":27,"ref":"B0FX2Y2HKW","type":"TM","status":"Removed","game":"Grab the Mic","market":"Amazon UK","notes":"Reported Apr26, REMOVED","url":""},{"id":28,"ref":"B0G1T8KC3X","type":"Grab that mic, our mic in purple","status":"Blocked","game":"Grab the Mic","market":"Amazon UK","notes":"Blocked","url":""},{"id":29,"ref":"B0G1THBNSZ","type":"Grab that mic, no copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon UK","notes":"Blocked","url":""},{"id":30,"ref":"B0G3PVD7SD","type":"TM","status":"Removed","game":"Grab the Mic","market":"Amazon UK","notes":"Reported Apr26, REMOVED","url":""},{"id":31,"ref":"B0FSRZHSVZ","type":"Similar red mic, snatch the mic and pass the mic","status":"Blocked","game":"Grab the Mic","market":"Amazon UK","notes":"Blocked","url":""},{"id":32,"ref":"B0GBX1MPCL","type":"No TM, our mic and board in orange","status":"Blocked","game":"Grab the Mic","market":"Amazon UK","notes":"Blocked","url":""},{"id":33,"ref":"B0G65652P9","type":"Grab that mic, our mic in purple","status":"Blocked","game":"Grab the Mic","market":"Amazon UK","notes":"Blocked","url":""},{"id":34,"ref":"B0G654V1KT","type":"Grab that mic, no copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon UK","notes":"Blocked","url":""},{"id":35,"ref":"B0GCH3KVFM","type":"Lucky egg logo","status":"Removed","game":"Grab the Mic","market":"Amazon UK","notes":"Reported Apr26, REMOVED","url":""},{"id":36,"ref":"B0FZVB4B47","type":"Our mic, board and back of box","status":"Rejected","game":"Grab the Mic","market":"Amazon UK","notes":"Rejected Nov25","url":""},{"id":37,"ref":"B0FJ1KHKH5","type":"No TM, our snouts","status":"Rejected","game":"Snort Funny","market":"Amazon UK","notes":"Rejected Mar26","url":""},{"id":38,"ref":"B0FVFMVXF9","type":"No TM, no copyright, Lyrical nonsense in listing","status":"Rejected","game":"Misheard Music","market":"Amazon UK","notes":"Rejected Mar26","url":""},{"id":39,"ref":"B0GGS1NMHJ","type":"TM","status":"Removed","game":"Misheard Music","market":"Amazon UK","notes":"Reported Apr26, REMOVED","url":""},{"id":40,"ref":"B0G7YVKL6M","type":"No TM, no copyright","status":"Reported","game":"Sorry What?!","market":"Amazon UK","notes":"Reported Apr26","url":""},{"id":41,"ref":"B0G4CJFSJT","type":"TM in product detail page","status":"Removed","game":"Sorry What?!","market":"Amazon UK","notes":"Reported Apr26, REMOVED","url":""},{"id":42,"ref":"B0GH67X67X","type":"TM","status":"Reported","game":"Sorry What?!","market":"Amazon UK","notes":"Reported Apr26","url":""},{"id":43,"ref":"B0FZJD8DZ6","type":"No TM, no copyright","status":"Rejected","game":"Grab the Mic","market":"Amazon Australia","notes":"Rejected Apr26","url":""},{"id":44,"ref":"B0G8ZQSVX8","type":"Grab that mic, our mic our tagline","status":"Blocked","game":"Grab the Mic","market":"Amazon Australia","notes":"Blocked","url":""},{"id":45,"ref":"B0F9TD8N6C","type":"TM, our mic","status":"Removed","game":"Grab the Mic","market":"Amazon Australia","notes":"Reported May26, REMOVED","url":""},{"id":46,"ref":"B0FQ63SWJ7","type":"TM, our mic","status":"Reported","game":"Grab the Mic","market":"Amazon Australia","notes":"Reported May26","url":""},{"id":47,"ref":"B0FQJW8SRT","type":"TM, our mic","status":"Removed","game":"Grab the Mic","market":"Amazon Australia","notes":"Reported May26, REMOVED","url":""},{"id":48,"ref":"B0GDLRFTDL","type":"Copyright (blurred packaging), our mic","status":"To do","game":"Grab the Mic","market":"Amazon Australia","notes":"","url":""},{"id":49,"ref":"B0G6MF86QF","type":"TM, our mic, our tagline","status":"Removed","game":"Grab the Mic","market":"Amazon Australia","notes":"Reported May26, REMOVED","url":""},{"id":50,"ref":"B0FXG6ST1Q","type":"TM","status":"Removed","game":"Grab the Mic","market":"Amazon Australia","notes":"Reported May26, REMOVED","url":""},{"id":51,"ref":"B0F48XP913","type":"No TM, no copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon Australia","notes":"Blocked","url":""},{"id":52,"ref":"B0GWR5B5RZ","type":"TM","status":"Removed","game":"Grab the Mic","market":"Amazon Australia","notes":"Reported May26, REMOVED","url":""},{"id":53,"ref":"B0GK7CRS9R","type":"Our mic, part packaging","status":"Blocked","game":"Grab the Mic","market":"Amazon Australia","notes":"Blocked","url":""},{"id":54,"ref":"B0FXRCCBTS","type":"Our mic, board and tokens, our tagline","status":"Blocked","game":"Grab the Mic","market":"Amazon Australia","notes":"Blocked","url":""},{"id":55,"ref":"B0G6LXM6SP","type":"No TM, no copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon Australia","notes":"Blocked","url":""},{"id":56,"ref":"B0G6K1T9M2","type":"Our mic, part packaging","status":"Blocked","game":"Grab the Mic","market":"Amazon Australia","notes":"Blocked","url":""},{"id":57,"ref":"B0FP1V42JD","type":"Our mic, part packaging","status":"Blocked","game":"Grab the Mic","market":"Amazon Australia","notes":"Blocked","url":""},{"id":58,"ref":"B0FSD5J23T","type":"TM and copyright","status":"Removed","game":"Grab the Mic","market":"Amazon Australia","notes":"Reported May26, REMOVED","url":""},{"id":59,"ref":"B0GKWC8YQZ","type":"TM","status":"Removed","game":"Grab the Mic","market":"Amazon Australia","notes":"Reported May26, REMOVED","url":""},{"id":60,"ref":"B0GKWMKRH1","type":"TM","status":"Removed","game":"Grab the Mic","market":"Amazon Australia","notes":"Reported May26, REMOVED","url":""},{"id":61,"ref":"B0GKW44TDH","type":"TM, our mic, part packaging","status":"Removed","game":"Grab the Mic","market":"Amazon Australia","notes":"Reported May26, REMOVED","url":""},{"id":62,"ref":"B0GCN6FSC3","type":"TM, copyright","status":"Blocked","game":"Snort Funny","market":"Amazon Australia","notes":"Blocked","url":""},{"id":63,"ref":"B0GFVVTL5L","type":"TM, copyright, brand abuse","status":"Blocked","game":"Snort Funny","market":"Amazon Australia","notes":"Blocked","url":""},{"id":64,"ref":"B0GQGV9QXL","type":"TM, copyright","status":"Blocked","game":"Snort Funny","market":"Amazon Australia","notes":"Blocked","url":""},{"id":65,"ref":"B0FRSVZCTB","type":"TM, copyright, brand abuse","status":"Blocked","game":"Snort Funny","market":"Amazon Australia","notes":"Blocked","url":""},{"id":66,"ref":"B0GCS836SF","type":"Similar packaging, oinkredible","status":"Blocked","game":"Snort Funny","market":"Amazon Australia","notes":"Blocked","url":""},{"id":67,"ref":"B0FJ1KHKH5","type":"No TM, no copyright, snouts","status":"Blocked","game":"Snort Funny","market":"Amazon Australia","notes":"Blocked","url":""},{"id":68,"ref":"B0FT7XBGM1","type":"TM, copyright","status":"Blocked","game":"Misheard Music","market":"Amazon Australia","notes":"Blocked","url":""},{"id":69,"ref":"B0FL7LR9F8","type":"TM, copyright","status":"Blocked","game":"Misheard Music","market":"Amazon Australia","notes":"Blocked","url":""},{"id":70,"ref":"B0FL7KLJDZ","type":"TM, copyright","status":"Blocked","game":"Misheard Music","market":"Amazon Australia","notes":"Blocked","url":""},{"id":71,"ref":"B0FQNML89Y","type":"No TM, no copyright","status":"Blocked","game":"Misheard Music","market":"Amazon Australia","notes":"Blocked","url":""},{"id":72,"ref":"B0FLC5BKTX","type":"TM, copyright","status":"Blocked","game":"Misheard Music","market":"Amazon Australia","notes":"Blocked","url":""},{"id":73,"ref":"B0FGV853QF","type":"No TM, no copyright","status":"Blocked","game":"Sorry What?!","market":"Amazon Australia","notes":"Blocked","url":""},{"id":74,"ref":"B0F844TGFQ","type":"Our mic, part packaging","status":"To do","game":"Grab the Mic","market":"Amazon Canada","notes":"","url":""},{"id":75,"ref":"B0GGBGJLW9","type":"Our mic, part packaging","status":"To do","game":"Grab the Mic","market":"Amazon Canada","notes":"","url":""},{"id":76,"ref":"B0FQMP7G9D","type":"TM, our mic, board and tokens","status":"To do","game":"Grab the Mic","market":"Amazon Canada","notes":"","url":""},{"id":77,"ref":"B0FKYZQ9F6","type":"No TM, no copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon Canada","notes":"Blocked","url":""},{"id":78,"ref":"B0FWQZFS3L","type":"Our mic, board and tokens","status":"To do","game":"Grab the Mic","market":"Amazon Canada","notes":"","url":""},{"id":79,"ref":"B0FLKMSWF9","type":"No TM, no copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon Canada","notes":"Blocked","url":""},{"id":80,"ref":"B0FB2TWKS9","type":"No TM, no copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon Canada","notes":"Blocked","url":""},{"id":81,"ref":"B0G4JN4FJR","type":"Copyright except name","status":"To do","game":"Grab the Mic","market":"Amazon Canada","notes":"","url":""},{"id":82,"ref":"B0FW3XT3KN","type":"No TM, no copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon Canada","notes":"Blocked","url":""},{"id":83,"ref":"B0GL2HQ92S","type":"Our images","status":"To do","game":"Snort Funny","market":"Amazon Canada","notes":"","url":""},{"id":84,"ref":"B0GKPYQ4D4","type":"TM, copyright","status":"To do","game":"Snort Funny","market":"Amazon Canada","notes":"","url":""},{"id":85,"ref":"B0GRV3C699","type":"Oinkredible, snouts","status":"Blocked","game":"Snort Funny","market":"Amazon Canada","notes":"Blocked","url":""},{"id":86,"ref":"B0FMQQPNML","type":"TM, copyright","status":"To do","game":"Misheard Music","market":"Amazon Canada","notes":"","url":""},{"id":87,"ref":"B0FNLFPSPJ","type":"TM, copyright","status":"To do","game":"Misheard Music","market":"Amazon Canada","notes":"","url":""},{"id":88,"ref":"B0FPF5TQFN","type":"No TM, no copyright","status":"Blocked","game":"Misheard Music","market":"Amazon Canada","notes":"Blocked","url":""},{"id":89,"ref":"B0GJZR845N","type":"TM, tagline","status":"Blocked","game":"Sorry What?!","market":"Amazon Canada","notes":"Blocked","url":""},{"id":90,"ref":"B0GBWSTKVW","type":"TM, no copyright","status":"Blocked","game":"Sorry What?!","market":"Amazon Canada","notes":"Blocked","url":""},{"id":91,"ref":"B0GDXLMTQJ","type":"TM, no copyright","status":"Blocked","game":"Sorry What?!","market":"Amazon Canada","notes":"Blocked","url":""},{"id":92,"ref":"B0GCCDVKG7","type":"TM, no copyright","status":"Blocked","game":"Sorry What?!","market":"Amazon Canada","notes":"Blocked","url":""},{"id":93,"ref":"B0G4C5CRZ9","type":"TM, tagline","status":"Blocked","game":"Sorry What?!","market":"Amazon Canada","notes":"Blocked","url":""},{"id":94,"ref":"B0FDKYCWT5","type":"TM, tagline","status":"Blocked","game":"Sorry What?!","market":"Amazon Canada","notes":"Blocked","url":""},{"id":95,"ref":"B0G5F89VP1","type":"TM, tagline","status":"Blocked","game":"Sorry What?!","market":"Amazon Canada","notes":"Blocked","url":""},{"id":96,"ref":"B0GC9RW6GB","type":"TM, no copyright","status":"Blocked","game":"Sorry What?!","market":"Amazon Canada","notes":"Blocked","url":""},{"id":97,"ref":"B0FCMLRQQ8","type":"No TM, no copyright","status":"Blocked","game":"Sorry What?!","market":"Amazon Canada","notes":"Blocked","url":""},{"id":98,"ref":"B0F484JVVG","type":"Grab that mic, our mic, part packaging","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":99,"ref":"B0FT7N3VVD","type":"Grab that mic, our mic, part packaging","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":100,"ref":"B0GCZB25ZC","type":"Grab that mic, our mic in purple","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":101,"ref":"B0G3PVD7SD","type":"Grab that mic, our mic in purple","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":102,"ref":"B0FZJD8DZ6","type":"Grab that mic","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":103,"ref":"B0G19C2H4V","type":"No TM, no copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":104,"ref":"B0G194SZKV","type":"Grab that mic, our mic in purple","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":105,"ref":"B0G1BWXPMN","type":"Grab that mic, our mic in purple","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":106,"ref":"B0G146G72J","type":"No TM, our mic in purple","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":107,"ref":"B0G1431WVX","type":"No TM, no copyright","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":108,"ref":"B0F29MKK7X","type":"TM","status":"Removed","game":"Grab the Mic","market":"Amazon EU","notes":"Reported May26, REMOVED","url":""},{"id":109,"ref":"B0FSRZHSVZ","type":"Tagline, part packaging, tokens","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":110,"ref":"B0GHLWMJPR","type":"No TM, our mic and board in orange","status":"Blocked","game":"Grab the Mic","market":"Amazon EU","notes":"Blocked","url":""},{"id":111,"ref":"B0G7ZT2YRM","type":"TM, copyright","status":"To do","game":"Snort Funny","market":"Amazon EU","notes":"","url":""},{"id":112,"ref":"B0G6KYV45S","type":"TM, blurred packaging","status":"To do","game":"Snort Funny","market":"Amazon EU","notes":"","url":""},{"id":113,"ref":"B0GGB3LLHB","type":"TM, copyright","status":"To do","game":"Snort Funny","market":"Amazon EU","notes":"","url":""},{"id":114,"ref":"B0GQ8SQWJL","type":"TM, part packaging","status":"To do","game":"Snort Funny","market":"Amazon EU","notes":"","url":""},{"id":115,"ref":"B0GH67X67X","type":"TM, no copyright","status":"Blocked","game":"Sorry What?!","market":"Amazon EU","notes":"Blocked","url":""},{"id":116,"ref":"B0GL1H9S2H","type":"TM, no copyright","status":"Blocked","game":"Sorry What?!","market":"Amazon EU","notes":"Blocked","url":""},{"id":117,"ref":"397895319254","type":"TM","status":"Removed","game":"Grab the Mic","market":"eBay","notes":"Reported May26, REMOVED","url":""},{"id":118,"ref":"306710286878","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":119,"ref":"336560362270","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":120,"ref":"167638860720","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":121,"ref":"397894569390","type":"Our mic, part packaging","status":"To do","game":"Grab the Mic","market":"eBay","notes":"","url":""},{"id":122,"ref":"377117270791","type":"TM","status":"Removed","game":"Grab the Mic","market":"eBay","notes":"Reported May26, REMOVED","url":""},{"id":123,"ref":"236776346782","type":"TM, brand abuse","status":"Removed","game":"Grab the Mic","market":"eBay","notes":"Reported May26, REMOVED","url":""},{"id":124,"ref":"406852660499","type":"Our mic, part packaging","status":"To do","game":"Grab the Mic","market":"eBay","notes":"","url":""},{"id":125,"ref":"336560804399","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":126,"ref":"306868272460","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":127,"ref":"358455657060","type":"TM","status":"Removed","game":"Grab the Mic","market":"eBay","notes":"Reported May26, REMOVED","url":""},{"id":128,"ref":"318210733709","type":"TM","status":"Removed","game":"Grab the Mic","market":"eBay","notes":"Reported May26, REMOVED","url":""},{"id":129,"ref":"227106804721","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":130,"ref":"389382433388","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":131,"ref":"127821565976","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":132,"ref":"168342478996","type":"TM","status":"Removed","game":"Grab the Mic","market":"eBay","notes":"Reported May26, REMOVED","url":""},{"id":133,"ref":"147268318269","type":"TM","status":"Removed","game":"Grab the Mic","market":"eBay","notes":"Reported May26, REMOVED","url":""},{"id":134,"ref":"188280172865","type":"TM","status":"Removed","game":"Grab the Mic","market":"eBay","notes":"Reported May26, REMOVED","url":""},{"id":135,"ref":"389906317767","type":"No TM, no copyright","status":"Blocked","game":"Grab the Mic","market":"eBay","notes":"Blocked","url":""},{"id":136,"ref":"167919943829","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":137,"ref":"227309427088","type":"TM, brand abuse","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":138,"ref":"318165849555","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":139,"ref":"227309427006","type":"TM, brand abuse","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":140,"ref":"318165849639","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":141,"ref":"406867102164","type":"TM, brand abuse","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":142,"ref":"205973064768","type":"TM","status":"Reported","game":"Grab the Mic","market":"eBay","notes":"Reported May26","url":""},{"id":143,"ref":"366085656431","type":"No TM, no copyright","status":"Blocked","game":"Grab the Mic","market":"eBay","notes":"Blocked","url":""},{"id":144,"ref":"198247545803","type":"No TM, no copyright","status":"Blocked","game":"Grab the Mic","market":"eBay","notes":"Blocked","url":""},{"id":145,"ref":"327121584201","type":"TM, tagline, copyright","status":"To do","game":"Snort Funny","market":"eBay","notes":"","url":""},{"id":146,"ref":"336540107053","type":"TM, images","status":"To do","game":"Snort Funny","market":"eBay","notes":"","url":""},{"id":147,"ref":"358282192897","type":"TM, tagline, copyright","status":"To do","game":"Snort Funny","market":"eBay","notes":"","url":""},{"id":148,"ref":"227157509817","type":"TM, tagline, copyright","status":"To do","game":"Snort Funny","market":"eBay","notes":"","url":""},{"id":149,"ref":"147252761972","type":"TM, tagline, copyright","status":"To do","game":"Snort Funny","market":"eBay","notes":"","url":""},{"id":150,"ref":"336453206118","type":"TM, tagline, copyright","status":"To do","game":"Snort Funny","market":"eBay","notes":"","url":""},{"id":151,"ref":"306877700076","type":"TM, tagline, copyright","status":"To do","game":"Snort Funny","market":"eBay","notes":"","url":""},{"id":152,"ref":"389857739733","type":"TM, tagline, copyright","status":"To do","game":"Snort Funny","market":"eBay","notes":"","url":""},{"id":153,"ref":"406569678300","type":"TM, tagline, copyright","status":"To do","game":"Snort Funny","market":"eBay","notes":"","url":""},{"id":154,"ref":"376908662810","type":"TM, tagline, copyright","status":"To do","game":"Snort Funny","market":"eBay","notes":"","url":""},{"id":155,"ref":"358162352004","type":"TM, tagline, copyright","status":"To do","game":"Snort Funny","market":"eBay","notes":"","url":""},{"id":156,"ref":"406861364965","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":157,"ref":"389927079201","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":158,"ref":"366338707399","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":159,"ref":"168283247462","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":160,"ref":"298188558824","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":161,"ref":"177867679245","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":162,"ref":"177334946028","type":"TM, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":163,"ref":"236743825119","type":"TM, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":164,"ref":"366334210093","type":"TM, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":165,"ref":"157620269178","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":166,"ref":"389931617555","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":167,"ref":"227293144304","type":"TM, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":168,"ref":"187778852632","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":169,"ref":"127689384798","type":"TM, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":170,"ref":"366072818487","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":171,"ref":"116961351304","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":172,"ref":"188093129100","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":173,"ref":"336540097274","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":174,"ref":"376783072327","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":175,"ref":"336372435508","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":176,"ref":"168205983633","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":177,"ref":"137268071105","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":178,"ref":"287116870318","type":"TM, brand abuse, copyright","status":"To do","game":"Misheard Music","market":"eBay","notes":"","url":""},{"id":179,"ref":"406600843683","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":180,"ref":"287248277297","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":181,"ref":"177945580945","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":182,"ref":"406850631118","type":"TM","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":183,"ref":"298162245665","type":"TM","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":184,"ref":"178094364920","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":185,"ref":"287262319067","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":186,"ref":"357839675398","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":187,"ref":"168301285761","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":188,"ref":"156767343807","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":189,"ref":"317713751885","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":190,"ref":"376818295175","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":191,"ref":"306685335787","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":192,"ref":"226898668185","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":193,"ref":"327096050350","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":194,"ref":"116925150273","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":195,"ref":"236755436974","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":196,"ref":"168205983629","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":197,"ref":"206051277608","type":"TM","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":198,"ref":"267529782596","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":199,"ref":"397574955919","type":"TM","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":200,"ref":"297913243987","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":201,"ref":"405497035268","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":202,"ref":"389585503552","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":203,"ref":"236511550757","type":"TM, brand abuse, copyright","status":"To do","game":"Sorry What?!","market":"eBay","notes":"","url":""},{"id":204,"ref":"16136564853","type":"Our mic, board and tokens, part packaging","status":"Reported","game":"Grab the Mic","market":"Walmart","notes":"Reported May26","url":""},{"id":205,"ref":"19332013632","type":"TM, copyright, logo","status":"Reported","game":"Grab the Mic","market":"Walmart","notes":"Reported May26","url":""},{"id":206,"ref":"18925321900","type":"TM, copyright","status":"To do","game":"Snort Funny","market":"Walmart","notes":"","url":""},{"id":207,"ref":"19698805449","type":"TM, copyright, brand abuse","status":"To do","game":"Misheard Music","market":"Walmart","notes":"","url":""},{"id":208,"ref":"20059002952","type":"no TM, no copyright","status":"Blocked","game":"Misheard Music","market":"Walmart","notes":"Blocked","url":""},{"id":209,"ref":"19639852303","type":"TM, copyright, brand abuse","status":"To do","game":"Misheard Music","market":"Walmart","notes":"","url":""},{"id":210,"ref":"19284059111","type":"No TM, no copyright","status":"Blocked","game":"Sorry What?!","market":"Walmart","notes":"Blocked","url":""},{"id":211,"ref":"19356519133","type":"No TM, no copyright","status":"Blocked","game":"Sorry What?!","market":"Walmart","notes":"Blocked","url":""}];
+
+const MARKETS = ['Amazon US','Amazon UK','Amazon EU','Amazon Canada','Amazon Australia','eBay','Walmart'];
+const AMZ = ['Amazon US','Amazon UK','Amazon EU','Amazon Canada','Amazon Australia'];
+const GAMES = ['Grab the Mic','Snort Funny','Misheard Music','Sorry What?!'];
+const STATUSES = ['To do','Reported','Blocked','Rejected','Removed'];
+const S_COLOR = {'To do':'#666672','Reported':'#d4a017','Blocked':'#3f8ef5','Rejected':'#e05252','Removed':'#4dab6d'};
+const S_CLASS = {'To do':'b-todo','Reported':'b-reported','Blocked':'b-blocked','Rejected':'b-rejected','Removed':'b-removed'};
+const M_COLORS = ['#7c6ff7','#a78bfa','#c4b5fd','#4fc8a0','#34d399','#f59e0b','#f97316'];
+const G_COLORS = ['#7c6ff7','#3f8ef5','#4fc8a0','#e05252'];
+
+// Load from localStorage, fall back to seed
+let listings = (() => {
+  try { const s = localStorage.getItem('iptrack'); return s ? JSON.parse(s) : [...SEED]; } catch { return [...SEED]; }
+})();
+let nextId = listings.reduce((m,l) => Math.max(m, l.id), 0) + 1;
+let currentMarket = 'all';
+let currentGame = 'all';
+let charts = {};
+
+function save() { try { localStorage.setItem('iptrack', JSON.stringify(listings)); } catch {} }
+
+// ── URL EXTRACTION ────────────────────────────────────────────────────────────
+const AMZ_DOMAINS = {'amazon.com/':'Amazon US','amazon.co.uk':'Amazon UK','amazon.de':'Amazon EU','amazon.fr':'Amazon EU','amazon.es':'Amazon EU','amazon.it':'Amazon EU','amazon.nl':'Amazon EU','amazon.ca':'Amazon Canada','amazon.com.au':'Amazon Australia'};
+const EXTRACTORS = {
+  'Amazon US': u => { const m=u.match(/\/([A-Z0-9]{10})(?:[/?]|$)/); return m?{ref:m[1],label:'ASIN'}:null; },
+  'Amazon UK': u => { const m=u.match(/\/([A-Z0-9]{10})(?:[/?]|$)/); return m?{ref:m[1],label:'ASIN'}:null; },
+  'Amazon EU': u => { const m=u.match(/\/([A-Z0-9]{10})(?:[/?]|$)/); return m?{ref:m[1],label:'ASIN'}:null; },
+  'Amazon Canada': u => { const m=u.match(/\/([A-Z0-9]{10})(?:[/?]|$)/); return m?{ref:m[1],label:'ASIN'}:null; },
+  'Amazon Australia': u => { const m=u.match(/\/([A-Z0-9]{10})(?:[/?]|$)/); return m?{ref:m[1],label:'ASIN'}:null; },
+  'eBay': u => { const m=u.match(/\/itm\/(?:[^/]+\/)?(\d{10,13})/); return m?{ref:m[1],label:'Item ID'}:null; },
+  'Walmart': u => { const m=u.match(/\/ip\/(?:[^/]+\/)?(\d+)/); return m?{ref:m[1],label:'Item ID'}:null; },
+};
+function autoMarket(url) {
+  for (const [d,n] of Object.entries(AMZ_DOMAINS)) if (url.includes(d)) return n;
+  if (url.includes('ebay.')) return 'eBay';
+  if (url.includes('walmart.')) return 'Walmart';
+  return null;
+}
+function handleUrl() {
+  const url = document.getElementById('inp-url').value.trim();
+  const hint = document.getElementById('ref-hint');
+  if (!url) { hint.style.display='none'; return; }
+  const det = autoMarket(url);
+  if (det) document.getElementById('inp-market').value = det;
+  const mkt = document.getElementById('inp-market').value;
+  const ex = EXTRACTORS[mkt];
+  if (!ex) return;
+  const r = ex(url);
+  if (r) {
+    document.getElementById('inp-ref').value = r.ref;
+    hint.textContent = r.label + ': ' + r.ref;
+    hint.style.display = 'block';
+  } else { hint.style.display='none'; }
+}
+
+// ── BADGE ─────────────────────────────────────────────────────────────────────
+function badge(s) { return `<span class="badge ${S_CLASS[s]||'b-todo'}">${s}</span>`; }
+function refCell(l) {
+  const r = l.url ? `<a href="${l.url}" target="_blank" style="color:var(--accent2);text-decoration:none">${l.ref}</a>` : l.ref;
+  return `<span class="mono">${r}</span>`;
+}
+
+// ── METRICS ───────────────────────────────────────────────────────────────────
+function metrics(data) {
+  const total = data.length;
+  return `
+    <div class="metric"><div class="metric-label">Total</div><div class="metric-val" style="color:var(--text)">${total}</div></div>
+    ${STATUSES.map(s=>`<div class="metric"><div class="metric-label">${s}</div><div class="metric-val c-${s.toLowerCase().replace(' ','-').replace('to-do','todo')}">${data.filter(l=>l.status===s).length}</div></div>`).join('')}
+  `;
+}
+
+// ── TABLE ROW ─────────────────────────────────────────────────────────────────
+function row(l) {
+  return `<tr>
+    <td>${refCell(l)}</td>
+    <td style="color:var(--muted);font-size:12px">${l.game}</td>
+    <td style="color:var(--muted);font-size:12px">${l.market}</td>
+    <td style="max-width:180px">${l.type}</td>
+    <td>${badge(l.status)}</td>
+    <td style="color:var(--muted);font-size:12px;max-width:160px">${l.notes}</td>
+    <td><button class="del" onclick="del(${l.id})" title="Delete">×</button></td>
+  </tr>`;
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+function renderDashboard() {
+  const filtered = currentGame==='all' ? listings : listings.filter(l=>l.game===currentGame);
+  document.getElementById('dash-metrics').innerHTML = metrics(filtered);
+  document.getElementById('dash-count').textContent = filtered.length + ' listings';
+  document.getElementById('dash-tbody').innerHTML = filtered.length
+    ? [...filtered].reverse().map(row).join('')
+    : '<tr><td colspan="7" class="empty">No listings yet.</td></tr>';
+
+  // game filter pills
+  const gf = document.getElementById('game-filter');
+  gf.innerHTML = `<button class="game-pill ${currentGame==='all'?'active':''}" onclick="setGame('all')">All games</button>` +
+    GAMES.map(g=>`<button class="game-pill ${currentGame===g?'active':''}" onclick="setGame('${g.replace("'","\\'")}')">${g}</button>`).join('');
+}
+function setGame(g) { currentGame=g; renderDashboard(); }
+
+// ── DATA TAB ──────────────────────────────────────────────────────────────────
+function buildSubtabs() {
+  const st = document.getElementById('market-subtabs');
+  st.innerHTML = `<button class="subtab ${currentMarket==='all'?'active':''}" onclick="setMarket('all')">All (${listings.length})</button>` +
+    MARKETS.map(m=>`<button class="subtab ${currentMarket===m?'active':''}" onclick="setMarket('${m}')">${m} (${listings.filter(l=>l.market===m).length})</button>`).join('');
+}
+function setMarket(m) { currentMarket=m; buildSubtabs(); renderData(); }
+function renderData() {
+  const filtered = currentMarket==='all' ? listings : listings.filter(l=>l.market===currentMarket);
+  document.getElementById('data-count').textContent = filtered.length + ' listings';
+  const tbody = document.getElementById('data-tbody');
+  const empty = document.getElementById('data-empty');
+  if (!filtered.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  tbody.innerHTML = [...filtered].reverse().map(row).join('');
+}
+
+// ── ADD / DELETE ──────────────────────────────────────────────────────────────
+function addListing() {
+  const ref = document.getElementById('inp-ref').value.trim();
+  const url = document.getElementById('inp-url').value.trim();
+  if (!ref) { document.getElementById('inp-ref').focus(); return; }
+  listings.push({
+    id: nextId++,
+    ref, url,
+    market: document.getElementById('inp-market').value,
+    game: document.getElementById('inp-game').value,
+    status: document.getElementById('inp-status').value,
+    type: document.getElementById('inp-type').value,
+    notes: ''
+  });
+  save();
+  document.getElementById('inp-ref').value='';
+  document.getElementById('inp-url').value='';
+  document.getElementById('inp-type').value='';
+  document.getElementById('ref-hint').style.display='none';
+  renderAll();
+  switchTab('dashboard');
+}
+function del(id) {
+  if (!confirm('Delete this listing?')) return;
+  listings = listings.filter(l=>l.id!==id);
+  save(); renderAll();
+}
+
+// ── CHARTS ────────────────────────────────────────────────────────────────────
+function makeLeg(id, labels, colors) {
+  document.getElementById(id).innerHTML = labels.map((l,i)=>
+    `<div class="leg-item"><div class="leg-dot" style="background:${colors[i]}"></div>${l}</div>`).join('');
+}
+function mkChart(id, type, labels, data, colors, opts={}) {
+  if (charts[id]) charts[id].destroy();
+  const ctx = document.getElementById(id);
+  charts[id] = new Chart(ctx, { type,
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderRadius: type==='bar'?4:0, borderWidth: type==='doughnut'?1:0, borderSkipped:false, ...opts }] },
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+      scales: type==='bar' ? { x:{grid:{display:false},ticks:{color:'#666672',font:{size:11}}}, y:{grid:{color:'#1e1e24'},ticks:{color:'#666672',font:{size:11},stepSize:1}} } : {}
+    }
+  });
+}
+function renderCharts() {
+  if (!listings.length) { document.getElementById('charts-empty').style.display='block'; return; }
+  document.getElementById('charts-empty').style.display='none';
+
+  const mCounts = MARKETS.map(m=>listings.filter(l=>l.market===m).length);
+  mkChart('c-market','bar',MARKETS,mCounts,M_COLORS);
+  makeLeg('leg-market',MARKETS,M_COLORS);
+
+  const sCounts = STATUSES.map(s=>listings.filter(l=>l.status===s).length);
+  mkChart('c-status','doughnut',STATUSES,sCounts,STATUSES.map(s=>S_COLOR[s]),{borderWidth:2});
+  makeLeg('leg-status',STATUSES,STATUSES.map(s=>S_COLOR[s]));
+
+  const amzCounts = AMZ.map(m=>listings.filter(l=>l.market===m).length);
+  mkChart('c-amazon','bar',AMZ,amzCounts,['#7c6ff7','#a78bfa','#c4b5fd','#4fc8a0','#34d399']);
+  makeLeg('leg-amazon',AMZ,['#7c6ff7','#a78bfa','#c4b5fd','#4fc8a0','#34d399']);
+
+  const gCounts = GAMES.map(g=>listings.filter(l=>l.game===g).length);
+  mkChart('c-game','doughnut',GAMES,gCounts,G_COLORS,{borderWidth:2});
+  makeLeg('leg-game',GAMES,G_COLORS);
+}
+
+// ── EXPORT ────────────────────────────────────────────────────────────────────
+function exportCSV(mkt) {
+  const data = mkt==='all' ? listings : listings.filter(l=>l.market===mkt);
+  const rows = [['Reference','Game','Marketplace','Type','Status','Notes','URL']];
+  data.forEach(l=>rows.push([l.ref,l.game,l.market,l.type,l.status,l.notes,l.url]));
+  const csv = rows.map(r=>r.map(c=>`"${(c||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download = `ip-tracker-${mkt==='all'?'all':mkt.replace(/ /g,'-').toLowerCase()}.csv`;
+  a.click();
+}
+
+// ── TAB SWITCHING ─────────────────────────────────────────────────────────────
+function switchTab(t) {
+  document.querySelectorAll('nav button').forEach((b,i)=>b.classList.toggle('active',['dashboard','log','data','charts'][i]===t));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('tab-'+t).classList.add('active');
+  if(t==='data'){buildSubtabs();renderData();}
+  if(t==='charts') renderCharts();
+  if(t==='dashboard') renderDashboard();
+}
+
+function renderAll() { renderDashboard(); buildSubtabs(); renderData(); }
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+renderAll();
+</script>
+</body>
+</html>
