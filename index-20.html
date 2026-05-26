@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IP Infringement Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.6.0/jspdf.plugin.autotable.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f11; --surface: #18181c; --surface2: #212126; --border: #2a2a30;
+    --text: #e8e8ec; --muted: #666672; --accent: #7c6ff7; --accent2: #4fc8a0;
+    --todo: #666672; --reported: #d4a017; --blocked: #3f8ef5; --rejected: #e05252; --removed: #4dab6d;
+    --font: 'DM Sans', sans-serif; --mono: 'DM Mono', monospace;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; min-height: 100vh; }
+  header { padding: 24px 32px 0; border-bottom: 1px solid var(--border); display: flex; align-items: flex-end; gap: 32px; }
+  .logo { font-size: 18px; font-weight: 600; letter-spacing: -0.5px; padding-bottom: 16px; }
+  .logo span { color: var(--accent); }
+  nav { display: flex; gap: 0; }
+  nav button { background: none; border: none; border-bottom: 2px solid transparent; padding: 10px 20px 14px; font-family: var(--font); font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; transition: color 0.15s; }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 500; }
+  .sync-status { margin-left: auto; padding-bottom: 16px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--removed); }
+  .sync-dot.syncing { background: var(--reported); animation: pulse 1s infinite; }
+  .sync-dot.error { background: var(--rejected); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  main { padding: 28px 32px; max-width: 1400px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .metric { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .metric-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+  .metric-val { font-size: 28px; font-weight: 600; letter-spacing: -1px; }
+  .c-todo{color:var(--muted)} .c-reported{color:var(--reported)} .c-blocked{color:var(--blocked)} .c-rejected{color:var(--rejected)} .c-removed{color:var(--removed)}
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; margin-bottom: 20px; }
+  .card-title { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 16px; }
+  .form-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  .form-row2 { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 11px; color: var(--muted); font-weight: 500; }
+  input[type=text], select { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; color: var(--text); font-family: var(--font); font-size: 13px; padding: 8px 10px; outline: none; transition: border-color 0.15s; width: 100%; }
+  input[type=text]:focus, select:focus { border-color: var(--accent); }
+  .ref-hint { font-family: var(--mono); font-size: 11px; color: var(--accent2); margin-top: 3px; display: none; }
+  button.add-btn { background: var(--accent); color: #fff; border: none; border-radius: 7px; padding: 9px 18px; font-family: var(--font); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: opacity 0.15s; }
+  button.add-btn:hover { opacity: 0.85; }
+  button.add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.sm-btn { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; font-family: var(--font); font-size: 12px; cursor: pointer; transition: color 0.15s; }
+  button.sm-btn:hover { color: var(--text); }
+  .subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  .subtab { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 4px 14px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .subtab:hover { color: var(--text); }
+  .subtab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .table-wrap { overflow-x: auto; }
+  .tbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+  .count-badge { font-size: 12px; color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 1px solid #1e1e24; vertical-align: middle; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  tr:hover td { background: var(--surface2); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .del { background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 15px; }
+  .del:hover { background: #3a1818; color: var(--rejected); }
+  .badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px; }
+  .b-todo{background:#222228;color:var(--muted)} .b-reported{background:#2d2410;color:var(--reported)} .b-blocked{background:#101c30;color:var(--blocked)} .b-rejected{background:#2a1212;color:var(--rejected)} .b-removed{background:#0e2016;color:var(--removed)}
+  .week-badge { display: inline-block; font-size: 10px; font-family: var(--mono); background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: var(--muted); }
+  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .chart-card h3 { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 16px; }
+  .chart-wrap { position: relative; height: 220px; }
+  .chart-wrap.tall { height: 280px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .leg-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  .leg-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .game-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 20px; }
+  .game-pill { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 5px 16px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; transition: all 0.15s; }
+  .game-pill:hover { color: var(--text); }
+  .game-pill.active { background: var(--surface2); border-color: var(--accent); color: var(--accent); }
+  .week-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .week-filter label { font-size: 12px; color: var(--muted); }
+  .week-filter select { width: auto; font-size: 12px; padding: 5px 8px; }
+  .empty { text-align: center; padding: 48px; color: var(--muted); font-size: 14px; }
+  .type-check { display: flex; align-items: center; gap: 5px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 12px; color: var(--muted); cursor: pointer; transition: all 0.15s; user-select: none; }
+  .type-check:hover { color: var(--text); border-color: var(--accent); }
+  .type-check input[type=checkbox] { accent-color: var(--accent); width: 13px; height: 13px; cursor: pointer; }
+  .type-check:has(input:checked) { background: var(--surface); border-color: var(--accent); color: var(--text); }
+  .edit-cell { cursor: pointer; display: flex; align-items: center; gap: 4px; min-height: 20px; }
+  .edit-cell:hover { color: var(--text); }
+  .edit-cell:hover .edit-icon { opacity: 1; }
+  .edit-icon { opacity: 0; font-size: 10px; color: var(--accent); flex-shrink: 0; }
+  .inline-select { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-family: var(--font); font-size: 12px; padding: 2px 4px; cursor: pointer; }
+  .loading { text-align: center; padding: 48px; color: var(--muted); font-size: 14px; }
+  @media (max-width: 768px) { header { padding: 16px 16px 0; flex-wrap: wrap; } main { padding: 20px 16px; } .form-grid { grid-template-columns: 1fr 1fr; } .form-row2 { grid-template-columns: 1fr; } .chart-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<!-- LOGIN SCREEN -->
+<div id="login-screen" style="display:none;position:fixed;inset:0;background:#0f0f11;z-index:1000;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:24px;">
+  <div style="text-align:center;">
+    <div style="font-size:28px;font-weight:600;color:#e8e8ec;margin-bottom:8px;">IP<span style="color:#7c6ff7">Track</span></div>
+    <div style="font-size:14px;color:#666672;">Lucky Egg IP Infringement Tracker</div>
+  </div>
+  <div style="background:#18181c;border:1px solid #2a2a30;border-radius:12px;padding:32px;width:340px;text-align:center;">
+    <div style="font-size:15px;font-weight:500;color:#e8e8ec;margin-bottom:8px;">Sign in to continue</div>
+    <div style="font-size:13px;color:#666672;margin-bottom:24px;">Only @luckyegg.co accounts are permitted</div>
+    <button id="google-signin-btn" onclick="signInWithGoogle()" style="width:100%;background:#fff;color:#333;border:none;border-radius:8px;padding:12px 16px;font-size:14px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;">
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 0 0 2.38-5.88c0-.57-.05-.66-.15-1.18z"/><path fill="#34A853" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2a4.8 4.8 0 0 1-7.18-2.54H1.83v2.07A8 8 0 0 0 8.98 17z"/><path fill="#FBBC05" d="M4.5 10.52a4.8 4.8 0 0 1 0-3.04V5.41H1.83a8 8 0 0 0 0 7.18l2.67-2.07z"/><path fill="#EA4335" d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 0 0 1.83 5.4L4.5 7.49a4.77 4.77 0 0 1 4.48-3.3z"/></svg>
+      Sign in with Google
+    </button>
+    <div id="login-error" style="margin-top:12px;font-size:12px;color:#e05252;display:none;"></div>
+  </div>
+</div>
+
+<header style="display:none">
+  <div class="logo">IP<span>Track</span></div>
+  <nav>
+    <button class="active" onclick="switchTab('dashboard')">Dashboard</button>
+    <button onclick="switchTab('log')">Log Listing</button>
+    <button onclick="switchTab('data')">All Listings</button>
+    <button onclick="switchTab('charts')">Charts</button>
+  </nav>
+  <div class="sync-status">
+    <div class="sync-dot" id="sync-dot"></div>
+    <span id="sync-label">Connected</span>
+  </div>
+</header>
+<main style="display:none">
+
+  <!-- DASHBOARD -->
+  <div id="tab-dashboard" class="panel active">
+    <div class="metrics" id="dash-metrics"><div class="loading">Loading...</div></div>
+    <div class="game-pills" id="game-filter"></div>
+    <div class="game-pills" id="market-filter-dash"></div>
+    <div class="game-pills" id="status-filter-dash"></div>
+    <div class="week-filter">
+      <label>Filter by week:</label>
+      <select id="dash-week-filter" onchange="renderDashboard()">
+        <option value="all">All time</option>
+      </select>
+    </div>
+    <div class="card">
+      <div class="tbar">
+        <div class="card-title" style="margin:0">Listings</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="count-badge" id="dash-count"></span>
+          <button class="sm-btn" onclick="exportCSV('all')">Export CSV</button>
+          <button class="sm-btn" onclick="exportURLs('all')">Export URLs</button>
+          <button class="sm-btn" onclick="generateWeeklyReport()" style="background:var(--accent);color:#fff;border-color:var(--accent)">📄 Weekly Report</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table><thead><tr>
+          <th>Ref</th><th>Game</th><th>Marketplace</th><th>Type</th><th>Status</th><th>Week</th><th>Notes</th><th></th>
+        </tr></thead><tbody id="dash-tbody"><tr><td colspan="8" class="loading">Loading...</td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div id="tab-log" class="panel">
+    <div class="card">
+      <div class="card-title">Add new listing</div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Listing URL</label>
+          <input type="text" id="inp-url" placeholder="Paste URL — ref extracted automatically" oninput="handleUrl()">
+          <div class="ref-hint" id="ref-hint"></div>
+        </div>
+        <div class="field">
+          <label>Marketplace</label>
+          <select id="inp-market" onchange="handleUrl()">
+            <optgroup label="Amazon">
+              <option>Amazon US</option><option>Amazon UK</option><option>Amazon EU</option>
+              <option>Amazon Canada</option><option>Amazon Australia</option>
+            </optgroup>
+            <optgroup label="Other">
+              <option>eBay</option><option>Alibaba</option><option>AliExpress</option>
+              <option>Walmart</option><option>Shein</option><option>Temu</option><option>Fruugo</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="field">
+          <label>Game</label>
+          <select id="inp-game">
+            <option>Grab the Mic</option><option>Snort Funny</option>
+            <option>Misheard Music</option><option>Sorry What?!</option><option>Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="inp-status">
+            <option>To do</option><option>Reported</option><option>Blocked</option>
+            <option>Rejected</option><option>Removed</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row2">
+        <div class="field">
+          <label>Reference no.</label>
+          <input type="text" id="inp-ref" placeholder="Auto-extracted or enter manually">
+        </div>
+        <div class="field">
+          <label>Infringement type</label>
+          <div id="inp-type-wrap" style="display:flex;flex-wrap:wrap;gap:6px;padding:6px 0;">
+            <label class="type-check"><input type="checkbox" value="TM"> TM</label>
+            <label class="type-check"><input type="checkbox" value="Copyright box"> Copyright box</label>
+            <label class="type-check"><input type="checkbox" value="Copyright components"> Copyright components</label>
+            <label class="type-check"><input type="checkbox" value="Weak copyright"> Weak copyright</label>
+            <label class="type-check"><input type="checkbox" value="All"> All</label>
+            <label class="type-check"><input type="checkbox" value="None"> None</label>
+          </div>
+        </div>
+        <button class="add-btn" id="add-btn" onclick="addListing()">+ Add listing</button>
+      </div>
+      <div id="add-msg" style="font-size:12px;margin-top:10px;display:none"></div>
+    </div>
+  </div>
+
+  <!-- DATA -->
+  <div id="tab-data" class="panel">
+    <div class="subtabs" id="market-subtabs"></div>
+    <div class="subtabs" id="status-subtabs"></div>
+    <div class="week-filter">
+      <label>Filter by week:</label>
+      <select id="data-week-filter" onchange="renderData()">
+        <option value="all">All time</option>
+      </select>
+    </div>
+    <div id="check-progress" style="display:none;background:#18181c;border:1px solid #2a2a30;border-radius:10px;padding:14px 18px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:13px;color:#e8e8ec;font-weight:500" id="check-status">Checking listings...</span>
+        <button class="sm-btn" onclick="cancelCheck()" style="font-size:11px">Cancel</button>
+      </div>
+      <div style="background:#2a2a30;border-radius:4px;height:6px;overflow:hidden;">
+        <div id="check-bar" style="background:#7c6ff7;height:100%;width:0%;transition:width 0.3s;border-radius:4px;"></div>
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:#666672" id="check-detail"></div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="tbar" style="padding:16px 20px 0">
+        <span class="count-badge" id="data-count"></span>
+        <button class="sm-btn" onclick="exportCSV(currentMarket)">Export CSV</button>
+          <button class="sm-btn" onclick="exportURLs(currentMarket)">Export URLs</button>
+          <button class="sm-btn" id="check-btn" onclick="checkURLs()">🔍 Check listings</button>
+      </div>
+      <div class="table-wrap" style="padding:0 0 4px">
+        <table><thead><tr>
+          <th>Ref</th><th>Game</th><th>Marketplace</th><th>Type</th><th>Status</th><th>Week added</th><th>Notes</th><th></th>
+        </tr></thead><tbody id="data-tbody"></tbody></table>
+        <div id="data-empty" class="empty" style="display:none">No listings for this filter.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div id="tab-charts" class="panel">
+    <div class="week-filter">
+      <label>Filter by week:</label>
+      <select id="chart-week-filter" onchange="renderCharts()">
+        <option value="all">All time</option>
+      </select>
+    </div>
+    <div class="chart-grid">
+      <div class="chart-card"><h3>By marketplace</h3><div class="chart-wrap"><canvas id="c-market"></canvas></div><div class="legend" id="leg-market"></div></div>
+      <div class="chart-card"><h3>By status</h3><div class="chart-wrap"><canvas id="c-status"></canvas></div><div class="legend" id="leg-status"></div></div>
+    </div>
+    <div class="chart-grid">
+      <div class="chart-card"><h3>Amazon regions</h3><div class="chart-wrap"><canvas id="c-amazon"></canvas></div><div class="legend" id="leg-amazon"></div></div>
+      <div class="chart-card"><h3>By game</h3><div class="chart-wrap"><canvas id="c-game"></canvas></div><div class="legend" id="leg-game"></div></div>
+    </div>
+    <div class="chart-card" style="margin-bottom:16px">
+      <h3>New listings over time (by week)</h3>
+      <div class="chart-wrap tall"><canvas id="c-timeline"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Removals over time (by week)</h3>
+      <div class="chart-wrap tall"><canvas id="c-removals"></canvas></div>
+    </div>
+  </div>
+
+</main>
+<script>
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+const { createClient } = supabase;
+const supabaseClient = createClient('https://ecpwutlxsuskbtmobjpb.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjcHd1dGx4c3Vza2J0bW9ianBiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNzkyNTIsImV4cCI6MjA5NDc1NTI1Mn0.7tkwgpf8mq7Poc_4PCrYydf62FqDSzHxxqMmlvmMDVo', {
+  auth: {
+    detectSessionInUrl: true,
+    persistSession: true,
+    autoRefreshToken: true
+  }
+});
+
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.querySelector('header').style.display = 'flex';
+  document.querySelector('main').style.display = 'block';
+}
+
+function showLogin(msg) {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.querySelector('header').style.display = 'none';
+  document.querySelector('main').style.display = 'none';
+  if (msg) {
+    document.getElementById('login-error').textContent = msg;
+    document.getElementById('login-error').style.display = 'block';
+  }
+}
+
+async function signInWithGoogle() {
+  const btn = document.getElementById('google-signin-btn');
+  btn.innerHTML = 'Signing in...';
+  btn.disabled = true;
+  const { error } = await supabaseClient.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: 'https://ip-tracker-gamma-rouge.vercel.app',
+      queryParams: { hd: 'luckyegg.co' }
+    }
+  });
+  if (error) {
+    document.getElementById('login-error').textContent = error.message;
+    document.getElementById('login-error').style.display = 'block';
+    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 0 0 2.38-5.88c0-.57-.05-.66-.15-1.18z"/><path fill="#34A853" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2a4.8 4.8 0 0 1-7.18-2.54H1.83v2.07A8 8 0 0 0 8.98 17z"/><path fill="#FBBC05" d="M4.5 10.52a4.8 4.8 0 0 1 0-3.04V5.41H1.83a8 8 0 0 0 0 7.18l2.67-2.07z"/><path fill="#EA4335" d="M8.98 4.18c1.17 0 2.23.4 3.06 1.2l2.3-2.3A8 8 0 0 0 1.83 5.4L4.5 7.49a4.77 4.77 0 0 1 4.48-3.3z"/></svg> Sign in with Google';
+    btn.disabled = false;
+  }
+}
+
+// Handle auth — check session on load, listen for changes
+async function initAuth() {
+  // First check if we have a session already (handles post-redirect)
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  
+  if (session) {
+    const email = session.user?.email || '';
+    if (!email.endsWith('@luckyegg.co')) {
+      await supabaseClient.auth.signOut();
+      showLogin('Access restricted to @luckyegg.co accounts only.');
+      return;
+    }
+    showApp();
+    loadListings();
+    setInterval(loadListings, 60000);
+    return;
+  }
+
+  // No session — show login
+  showLogin();
+
+  // Also listen for future sign-ins
+  supabaseClient.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_IN' && session) {
+      const email = session.user?.email || '';
+      if (!email.endsWith('@luckyegg.co')) {
+        await supabaseClient.auth.signOut();
+        showLogin('Access restricted to @luckyegg.co accounts only.');
+        return;
+      }
+      showApp();
+      loadListings();
+      setInterval(loadListings, 60000);
+    } else if (event === 'SIGNED_OUT') {
+      showLogin();
+    }
+  });
+}
+
+const SUPABASE_URL = 'https://ecpwutlxsuskbtmobjpb.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVjcHd1dGx4c3Vza2J0bW9ianBiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxNzkyNTIsImV4cCI6MjA5NDc1NTI1Mn0.7tkwgpf8mq7Poc_4PCrYydf62FqDSzHxxqMmlvmMDVo';
+
+const MARKETS = ['Amazon US','Amazon UK','Amazon EU','Amazon Canada','Amazon Australia','eBay','Alibaba','AliExpress','Walmart','Shein','Temu','Fruugo','TikTok Shop'];
+const AMZ = ['Amazon US','Amazon UK','Amazon EU','Amazon Canada','Amazon Australia'];
+const GAMES = ['Grab the Mic','Snort Funny','Misheard Music','Sorry What?!'];
+const STATUSES = ['To do','Reported','Blocked','Rejected','Removed'];
+const S_COLOR = {'To do':'#666672','Reported':'#d4a017','Blocked':'#3f8ef5','Rejected':'#e05252','Removed':'#4dab6d'};
+const S_BG = {'To do':'#222228','Reported':'#2d2410','Blocked':'#101c30','Rejected':'#2a1212','Removed':'#0e2016'};
+const S_CLASS = {'To do':'b-todo','Reported':'b-reported','Blocked':'b-blocked','Rejected':'b-rejected','Removed':'b-removed'};
+const M_COLORS = ['#7c6ff7','#a78bfa','#c4b5fd','#4fc8a0','#34d399','#f59e0b','#f97316','#ef4444','#007DC6','#FF5C8A','#EA4E1B','#5B9E3A','#000000'];
+const AMZ_COLORS = ['#7c6ff7','#a78bfa','#c4b5fd','#4fc8a0','#34d399'];
+const G_COLORS = ['#7c6ff7','#3f8ef5','#4fc8a0','#e05252'];
+
+let allListings = [];
+let currentMarket = 'all';
+let currentGame = 'all';
+let currentMarketDash = 'all';
+let currentStatus = 'all';
+let charts = {};
+
+// ── SUPABASE API ──────────────────────────────────────────────────────────────
+async function sbFetch(path, opts={}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...opts,
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': opts.prefer || 'return=representation',
+      ...(opts.headers||{})
+    }
+  });
+  if (!res.ok) { const e = await res.text(); throw new Error(e); }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+async function loadListings() {
+  setSyncing(true);
+  try {
+    const data = await sbFetch('listings?select=*&order=date_added.desc,id.desc');
+    allListings = data || [];
+    populateWeekFilters();
+    renderAll();
+    setSyncing(false);
+  } catch(e) {
+    setError();
+    console.error(e);
+  }
+}
+
+function setSyncing(s) {
+  const dot = document.getElementById('sync-dot');
+  const lbl = document.getElementById('sync-label');
+  if (s) { dot.className='sync-dot syncing'; lbl.textContent='Syncing...'; }
+  else { dot.className='sync-dot'; lbl.textContent='Live'; }
+}
+function setError() {
+  document.getElementById('sync-dot').className='sync-dot error';
+  document.getElementById('sync-label').textContent='Connection error';
+}
+
+// ── WEEK FILTERS ──────────────────────────────────────────────────────────────
+function populateWeekFilters() {
+  const weeks = [...new Set(allListings.map(l=>l.week_label).filter(Boolean))].sort().reverse();
+  ['dash-week-filter','data-week-filter','chart-week-filter'].forEach(id => {
+    const sel = document.getElementById(id);
+    const cur = sel.value;
+    sel.innerHTML = '<option value="all">All time</option>' +
+      weeks.map(w=>`<option value="${w}">${w}</option>`).join('');
+    if (weeks.includes(cur)) sel.value = cur;
+  });
+}
+
+function getWeekFilter(id) { return document.getElementById(id).value; }
+
+function filterByWeek(data, week) {
+  if (week === 'all') return data;
+  return data.filter(l => l.week_label === week);
+}
+
+// ── URL EXTRACTION ────────────────────────────────────────────────────────────
+const AMZ_DOMAINS = {'amazon.com/':'Amazon US','amazon.co.uk':'Amazon UK','amazon.de':'Amazon EU','amazon.fr':'Amazon EU','amazon.es':'Amazon EU','amazon.it':'Amazon EU','amazon.ca':'Amazon Canada','amazon.com.au':'Amazon Australia'};
+const EXTRACTORS = {
+  'Amazon US': u=>{const m=u.match(/\/([A-Z0-9]{10})(?:[/?]|$)/);return m?{ref:m[1],label:'ASIN'}:null;},
+  'Amazon UK': u=>{const m=u.match(/\/([A-Z0-9]{10})(?:[/?]|$)/);return m?{ref:m[1],label:'ASIN'}:null;},
+  'Amazon EU': u=>{const m=u.match(/\/([A-Z0-9]{10})(?:[/?]|$)/);return m?{ref:m[1],label:'ASIN'}:null;},
+  'Amazon Canada': u=>{const m=u.match(/\/([A-Z0-9]{10})(?:[/?]|$)/);return m?{ref:m[1],label:'ASIN'}:null;},
+  'Amazon Australia': u=>{const m=u.match(/\/([A-Z0-9]{10})(?:[/?]|$)/);return m?{ref:m[1],label:'ASIN'}:null;},
+  'eBay': u=>{const m=u.match(/\/itm\/(?:[^/]+\/)?(\d{10,13})/);return m?{ref:m[1],label:'Item ID'}:null;},
+  'Walmart': u=>{const m=u.match(/\/ip\/(?:[^/]+\/)?(\d+)/);return m?{ref:m[1],label:'Item ID'}:null;},
+};
+function autoMarket(url) {
+  for(const [d,n] of Object.entries(AMZ_DOMAINS)) if(url.includes(d)) return n;
+  if(url.includes('ebay.')) return 'eBay';
+  if(url.includes('walmart.')) return 'Walmart';
+  return null;
+}
+function handleUrl() {
+  const url = document.getElementById('inp-url').value.trim();
+  const hint = document.getElementById('ref-hint');
+  if (!url) { hint.style.display='none'; return; }
+  const det = autoMarket(url);
+  if (det) document.getElementById('inp-market').value = det;
+  const mkt = document.getElementById('inp-market').value;
+  const ex = EXTRACTORS[mkt];
+  if (!ex) return;
+  const r = ex(url);
+  if (r) { document.getElementById('inp-ref').value=r.ref; hint.textContent=r.label+': '+r.ref; hint.style.display='block'; }
+  else hint.style.display='none';
+}
+
+// ── ADD LISTING ───────────────────────────────────────────────────────────────
+async function addListing() {
+  const ref = document.getElementById('inp-ref').value.trim();
+  const url = document.getElementById('inp-url').value.trim();
+  const msg = document.getElementById('add-msg');
+  if (!ref) { document.getElementById('inp-ref').focus(); return; }
+
+  const btn = document.getElementById('add-btn');
+  btn.disabled = true; btn.textContent = 'Adding...';
+  msg.style.display='none';
+
+  const today = new Date();
+  const week = getISOWeekLabel(today);
+
+  const payload = {
+    ref, url,
+    market: document.getElementById('inp-market').value,
+    game: document.getElementById('inp-game').value,
+    status: document.getElementById('inp-status').value,
+    type: [...document.querySelectorAll('#inp-type-wrap input:checked')].map(c=>c.value).join(', ') || '',
+    notes: '',
+    date_added: today.toISOString().split('T')[0],
+    week_label: week
+  };
+
+  try {
+    await sbFetch('listings', { method:'POST', prefer:'return=minimal', body: JSON.stringify(payload) });
+    allListings.unshift({...payload, id: Date.now()});
+    populateWeekFilters();
+    renderAll();
+    document.getElementById('inp-ref').value='';
+    document.getElementById('inp-url').value='';
+    document.querySelectorAll('#inp-type-wrap input').forEach(c=>c.checked=false);
+    document.getElementById('ref-hint').style.display='none';
+    msg.textContent='✓ Listing added successfully'; msg.style.color='var(--removed)'; msg.style.display='block';
+    setTimeout(()=>msg.style.display='none', 3000);
+  } catch(e) {
+    if (e.message.includes('unique') || e.message.includes('duplicate')) {
+      msg.textContent='⚠ This listing already exists for this marketplace'; msg.style.color='var(--reported)';
+    } else {
+      msg.textContent='✕ Error adding listing: '+e.message; msg.style.color='var(--rejected)';
+    }
+    msg.style.display='block';
+  }
+  btn.disabled=false; btn.textContent='+ Add listing';
+}
+
+function getISOWeekLabel(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+  const week = Math.ceil((((d-yearStart)/86400000)+1)/7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2,'0')}`;
+}
+
+// ── DELETE ────────────────────────────────────────────────────────────────────
+async function del(id) {
+  if (!confirm('Delete this listing?')) return;
+  try {
+    await sbFetch(`listings?id=eq.${id}`, { method:'DELETE', prefer:'return=minimal' });
+    allListings = allListings.filter(l=>l.id!==id);
+    renderAll();
+  } catch(e) { alert('Error deleting: '+e.message); }
+}
+
+// ── INLINE EDIT ───────────────────────────────────────────────────────────────
+async function updateField(id, field, value) {
+  const listing = allListings.find(l=>l.id===id);
+  if (!listing) return;
+  const old = listing[field];
+  listing[field] = value;
+  try {
+    await sbFetch(`listings?id=eq.${id}`, { method:'PATCH', prefer:'return=minimal', body: JSON.stringify({[field]: value}) });
+  } catch(e) {
+    listing[field] = old;
+    alert('Error saving: '+e.message);
+  }
+  renderAll();
+}
+
+function makeEditable(l, field, currentVal) {
+  if (field === 'status') {
+    return `<select class="inline-select" onchange="updateField(${l.id},'status',this.value)">${STATUSES.map(s=>`<option value="${s}" ${s===currentVal?'selected':''}>${s}</option>`).join('')}</select>`;
+  }
+  return `<div class="edit-cell" onclick="startEditText(this,${l.id},'${field}')" title="Click to edit"><span class="edit-val">${currentVal||''}</span><span class="edit-icon"> ✎</span></div>`;
+}
+
+function startEditText(cell, id, field) {
+  const current = allListings.find(l=>l.id===id)?.[field] || '';
+  const input = document.createElement('input');
+  input.type = 'text'; input.value = current; input.className = 'inline-input';
+  input.style.cssText = 'width:100%;background:var(--surface2);border:1px solid var(--accent);border-radius:4px;color:var(--text);font-family:var(--font);font-size:12px;padding:3px 6px;outline:none;';
+  cell.innerHTML = ''; cell.appendChild(input); input.focus(); input.select();
+  input.addEventListener('blur', () => updateField(id, field, input.value));
+  input.addEventListener('keydown', e => { if(e.key==='Enter') input.blur(); if(e.key==='Escape') renderAll(); });
+}
+
+// ── RENDER HELPERS ────────────────────────────────────────────────────────────
+function badge(s) { return `<span class="badge ${S_CLASS[s]||'b-todo'}">${s}</span>`; }
+function refCell(l) {
+  const r = l.url ? `<a href="${l.url}" target="_blank" style="color:var(--accent2);text-decoration:none">${l.ref}</a>` : l.ref;
+  return `<span class="mono">${r}</span>`;
+}
+function tableRow(l) {
+  return `<tr>
+    <td>${refCell(l)}</td>
+    <td style="color:var(--muted);font-size:12px">${l.game||''}</td>
+    <td style="color:var(--muted);font-size:12px">${l.market||''}</td>
+    <td>${makeEditable(l,'type',l.type)}</td>
+    <td>${makeEditable(l,'status',l.status)}</td>
+    <td><span class="week-badge">${l.week_label||''}</span></td>
+    <td>${makeEditable(l,'notes',l.notes)}</td>
+    <td><button class="del" onclick="del(${l.id})">×</button></td>
+  </tr>`;
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+function renderDashboard() {
+  const week = getWeekFilter('dash-week-filter');
+  let data = filterByWeek(allListings, week);
+  if (currentGame !== 'all') data = data.filter(l=>l.game===currentGame);
+  if (currentMarketDash !== 'all') data = data.filter(l=>l.market===currentMarketDash);
+  if (currentStatus !== 'all') data = data.filter(l=>l.status===currentStatus);
+
+  // Metrics
+  document.getElementById('dash-metrics').innerHTML =
+    `<div class="metric"><div class="metric-label">Total</div><div class="metric-val" style="color:var(--text)">${data.length}</div></div>` +
+    STATUSES.map(s=>`<div class="metric"><div class="metric-label">${s}</div><div class="metric-val c-${s==='To do'?'todo':s.toLowerCase()}">${data.filter(l=>l.status===s).length}</div></div>`).join('');
+
+  document.getElementById('dash-count').textContent = data.length + ' listings';
+  document.getElementById('dash-tbody').innerHTML = data.length
+    ? data.map(tableRow).join('')
+    : '<tr><td colspan="8" class="empty">No listings.</td></tr>';
+
+  // Game pills
+  document.getElementById('game-filter').innerHTML =
+    `<button class="game-pill ${currentGame==='all'?'active':''}" data-game="all">All games</button>` +
+    GAMES.map(g=>`<button class="game-pill ${currentGame===g?'active':''}" data-game="${g}">${g}</button>`).join('');
+  document.getElementById('status-filter-dash').innerHTML =
+    `<button class="game-pill ${currentStatus==='all'?'active':''}" data-status="all">All statuses</button>` +
+    STATUSES.map(s=>`<button class="game-pill ${currentStatus===s?'active':''}" data-status="${s}">${s}</button>`).join('');
+  document.getElementById('market-filter-dash').innerHTML =
+    `<button class="game-pill ${currentMarketDash==='all'?'active':''}" data-market-dash="all">All marketplaces</button>` +
+    MARKETS.map(m=>`<button class="game-pill ${currentMarketDash===m?'active':''}" data-market-dash="${m}">${m}</button>`).join('');
+}
+function setGame(g) { currentGame=g; renderDashboard(); }
+function setMarketDash(m) { currentMarketDash=m; renderDashboard(); }
+function setStatus(s) { currentStatus=s; renderDashboard(); renderData(); }
+
+// ── DATA TAB ──────────────────────────────────────────────────────────────────
+function buildSubtabs() {
+  document.getElementById('status-subtabs').innerHTML =
+    `<button class="subtab ${currentStatus==='all'?'active':''}" data-status="all">All statuses</button>` +
+    STATUSES.map(s=>`<button class="subtab ${currentStatus===s?'active':''}" data-status="${s}">${s} (${allListings.filter(l=>l.status===s).length})</button>`).join('');
+  document.getElementById('market-subtabs').innerHTML =
+    `<button class="subtab ${currentMarket==='all'?'active':''}" data-market="all">All (${allListings.length})</button>` +
+    MARKETS.map(m=>`<button class="subtab ${currentMarket===m?'active':''}" data-market="${m}">${m} (${allListings.filter(l=>l.market===m).length})</button>`).join('');
+}
+function setMarket(m) { currentMarket=m; buildSubtabs(); renderData(); }
+function renderData() {
+  const week = getWeekFilter('data-week-filter');
+  let data = filterByWeek(allListings, week);
+  if (currentMarket !== 'all') data = data.filter(l=>l.market===currentMarket);
+  if (currentStatus !== 'all') data = data.filter(l=>l.status===currentStatus);
+  document.getElementById('data-count').textContent = data.length + ' listings';
+  const tbody = document.getElementById('data-tbody');
+  const empty = document.getElementById('data-empty');
+  if (!data.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  tbody.innerHTML = data.map(tableRow).join('');
+}
+
+// ── CHARTS ────────────────────────────────────────────────────────────────────
+function makeLeg(id, labels, colors) {
+  document.getElementById(id).innerHTML = labels.map((l,i)=>
+    `<div class="leg-item"><div class="leg-dot" style="background:${colors[i]||'#888'}"></div>${l}</div>`).join('');
+}
+function mkChart(id, type, labels, datasets, opts={}) {
+  if (charts[id]) charts[id].destroy();
+  const isSingle = !datasets[0]?.label;
+  charts[id] = new Chart(document.getElementById(id), {
+    type,
+    data: { labels, datasets: isSingle
+      ? [{ data: datasets, backgroundColor: opts.colors||[], borderRadius: type==='bar'?4:0, borderWidth: type==='doughnut'?1:0, borderSkipped:false }]
+      : datasets
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks: type==='line' ? { title: i=>i[0].label } : {} } },
+      scales: type!=='doughnut' ? {
+        x:{ grid:{display:false}, ticks:{color:'#666672',font:{size:11},maxRotation:45,autoSkip:true} },
+        y:{ grid:{color:'#1e1e24'}, ticks:{color:'#666672',font:{size:11},stepSize:1}, stacked: opts.stacked||false }
+      } : {}
+    }
+  });
+}
+
+function renderCharts() {
+  const week = getWeekFilter('chart-week-filter');
+  const data = filterByWeek(allListings, week);
+  if (!data.length) return;
+
+  // By marketplace
+  mkChart('c-market','bar',MARKETS,MARKETS.map(m=>data.filter(l=>l.market===m).length),{colors:M_COLORS});
+  makeLeg('leg-market',MARKETS,M_COLORS);
+
+  // By status
+  mkChart('c-status','doughnut',STATUSES,STATUSES.map(s=>data.filter(l=>l.status===s).length),{colors:STATUSES.map(s=>S_COLOR[s])});
+  makeLeg('leg-status',STATUSES,STATUSES.map(s=>S_COLOR[s]));
+
+  // Amazon regions
+  mkChart('c-amazon','bar',AMZ,AMZ.map(m=>data.filter(l=>l.market===m).length),{colors:AMZ_COLORS});
+  makeLeg('leg-amazon',AMZ,AMZ_COLORS);
+
+  // By game
+  mkChart('c-game','doughnut',GAMES,GAMES.map(g=>data.filter(l=>l.game===g).length),{colors:G_COLORS});
+  makeLeg('leg-game',GAMES,G_COLORS);
+
+  // Timeline — new listings by week
+  const weeks = [...new Set(allListings.map(l=>l.week_label).filter(Boolean))].sort();
+  const newPerWeek = weeks.map(w=>allListings.filter(l=>l.week_label===w).length);
+  const removedPerWeek = weeks.map(w=>allListings.filter(l=>l.week_label===w&&l.status==='Removed').length);
+
+  mkChart('c-timeline','line',weeks,[{
+    label:'New listings', data:newPerWeek,
+    borderColor:'#7c6ff7', backgroundColor:'rgba(124,111,247,0.15)',
+    fill:true, tension:0.3, pointRadius:4, pointBackgroundColor:'#7c6ff7'
+  }]);
+
+  mkChart('c-removals','line',weeks,[{
+    label:'Removed', data:removedPerWeek,
+    borderColor:'#4dab6d', backgroundColor:'rgba(77,171,109,0.15)',
+    fill:true, tension:0.3, pointRadius:4, pointBackgroundColor:'#4dab6d'
+  }]);
+}
+
+// ── EXPORT ────────────────────────────────────────────────────────────────────
+// ── URL CHECKER ───────────────────────────────────────────────────────────────
+const AMAZON_MARKETS = ['Amazon US', 'Amazon UK', 'Amazon EU', 'Amazon Canada', 'Amazon Australia'];
+const CORS_PROXIES = [
+  'https://corsproxy.io/?url=',
+  'https://api.allorigins.win/get?url=',
+  'https://corsproxy.io/?',
+];
+
+async function fetchWithProxy(url) {
+  for (const proxy of CORS_PROXIES) {
+    try {
+      const res = await fetch(proxy + encodeURIComponent(url), {
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!res.ok) continue;
+      // allorigins wraps content in JSON
+      if (proxy.includes('allorigins')) {
+        const json = await res.json();
+        return json.contents || '';
+      }
+      return await res.text();
+    } catch (e) {
+      continue;
+    }
+  }
+  return null;
+}
+let checkCancelled = false;
+
+async function checkURLs() {
+  // Only check non-Amazon listings with URLs
+  const toCheck = allListings.filter(l =>
+    l.url && l.url.trim() !== '' &&
+    !AMAZON_MARKETS.includes(l.market) &&
+    l.status !== 'Removed'
+  );
+
+  if (toCheck.length === 0) {
+    alert('No non-Amazon listings with URLs to check.');
+    return;
+  }
+
+  checkCancelled = false;
+  document.getElementById('check-progress').style.display = 'block';
+  document.getElementById('check-btn').disabled = true;
+  document.getElementById('check-btn').textContent = 'Checking...';
+
+  let checked = 0, removed = 0, errors = 0;
+
+  for (const listing of toCheck) {
+    if (checkCancelled) break;
+
+    document.getElementById('check-status').textContent = `Checking ${checked + 1} of ${toCheck.length}...`;
+    document.getElementById('check-bar').style.width = `${Math.round((checked / toCheck.length) * 100)}%`;
+    document.getElementById('check-detail').textContent = `${listing.market}: ${listing.ref}`;
+
+    try {
+      const text = await fetchWithProxy(listing.url);
+      if (!text) { errors++; continue; }
+      const lower = text.toLowerCase();
+
+      // Marketplace-specific "not found" page signatures
+      const GONE_SIGNALS = {
+        "eBay":       ["we looked everywhere", "page isnt available", "item not found"],
+        "Walmart":    ["we couldnt find this page", "page not found", "item not available"],
+        "AliExpress": ["item is no longer available", "product is unavailable", "this product is not available"],
+        "Alibaba":    ["product is no longer available", "item removed", "page not found"],
+        "Shein":      ["this page doesnt exist", "product not found"],
+        "Temu":       ["this product is no longer", "item unavailable", "page not found"],
+        "Fruugo":     ["product not found", "page not found", "no longer available"]
+      };
+
+      const signals = GONE_SIGNALS[listing.market] || [];
+      const isDefinitelyGone = signals.some(s => lower.includes(s));
+
+      if (isDefinitelyGone) {
+        await updateField(listing.id, 'status', 'Removed');
+        removed++;
+        document.getElementById('check-detail').textContent = `✓ Marked removed: ${listing.ref}`;
+      }
+    } catch (e) {
+      errors++;
+    }
+
+    checked++;
+    // Small delay to avoid rate limiting
+    await new Promise(r => setTimeout(r, 800));
+  }
+
+  document.getElementById('check-bar').style.width = '100%';
+  document.getElementById('check-status').textContent =
+    `Done — ${removed} newly removed, ${checked - removed - errors} still active, ${errors} errors`;
+  document.getElementById('check-detail').textContent = 'Click anywhere to dismiss';
+  document.getElementById('check-btn').disabled = false;
+  document.getElementById('check-btn').textContent = '🔍 Check listings';
+
+  setTimeout(() => {
+    document.getElementById('check-progress').style.display = 'none';
+  }, 8000);
+}
+
+function cancelCheck() {
+  checkCancelled = true;
+  document.getElementById('check-progress').style.display = 'none';
+  document.getElementById('check-btn').disabled = false;
+  document.getElementById('check-btn').textContent = '🔍 Check listings';
+}
+
+// ── WEEKLY REPORT ─────────────────────────────────────────────────────────────
+function generateWeeklyReport() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  // Get current week and previous week
+  const now = new Date();
+  const currentWeek = getISOWeekLabel(now);
+  const prevDate = new Date(now);
+  prevDate.setDate(prevDate.getDate() - 7);
+  const prevWeek = getISOWeekLabel(prevDate);
+
+  const thisWeekData = allListings.filter(l => l.week_label === currentWeek);
+  const prevWeekData = allListings.filter(l => l.week_label === prevWeek);
+  const allActive = allListings.filter(l => l.status !== 'Removed');
+
+  const GAMES = ['Grab the Mic', 'Snort Funny', 'Misheard Music', 'Sorry What?!'];
+  const WEEKLY_MARKETS = ['Amazon US', 'Amazon UK', 'eBay', 'Walmart', 'TikTok Shop'];
+  const ALL_MARKETS = ['Amazon US', 'Amazon UK', 'Amazon EU', 'Amazon Canada', 'Amazon Australia', 'eBay', 'Walmart', 'Alibaba', 'AliExpress', 'Shein', 'Temu', 'Fruugo', 'TikTok Shop'];
+
+  const BRAND = [124, 111, 247]; // #7c6ff7
+  const DARK = [31, 31, 31];
+  const MUTED = [100, 100, 110];
+  const WHITE = [255, 255, 255];
+  const LIGHT = [245, 245, 250];
+
+  let y = 0;
+  const W = 210;
+  const margin = 16;
+  const col = W - margin * 2;
+
+  function addPage() {
+    doc.addPage();
+    y = 20;
+  }
+
+  function checkY(needed) {
+    if (y + needed > 270) addPage();
+  }
+
+  // ── HEADER ──
+  doc.setFillColor(...BRAND);
+  doc.rect(0, 0, W, 28, 'F');
+  doc.setTextColor(...WHITE);
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Lucky Egg — IP Infringement Tracker', margin, 12);
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Weekly Marketplace Sweep Report', margin, 20);
+  doc.text(`Week: ${currentWeek}   Generated: ${now.toLocaleDateString('en-GB', {day:'2-digit',month:'long',year:'numeric'})}`, W - margin, 20, { align: 'right' });
+
+  y = 36;
+
+  // ── HEADLINE METRICS ──
+  doc.setTextColor(...DARK);
+  doc.setFontSize(13);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Summary', margin, y); y += 6;
+
+  const removedThisWeekCount = allListings.filter(l => l.week_label === currentWeek && l.status === 'Removed').length;
+  const newThisWeek = thisWeekData.length;
+  const netChange = newThisWeek - removedThisWeekCount;
+  const netStr = (netChange > 0 ? '+' : '') + netChange;
+
+  const metrics = [
+    { label: 'Total active infringements', value: allActive.length },
+    { label: 'New this week', value: newThisWeek },
+    { label: 'Removed this week', value: removedThisWeekCount },
+    { label: 'Net change this week', value: netStr },
+  ];
+
+  const boxW = (col - 6) / 4;
+  metrics.forEach((m, i) => {
+    const x = margin + i * (boxW + 2);
+    doc.setFillColor(...LIGHT);
+    doc.roundedRect(x, y, boxW, 18, 2, 2, 'F');
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...BRAND);
+    doc.text(String(m.value), x + boxW/2, y + 10, { align: 'center' });
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...MUTED);
+    doc.text(m.label, x + boxW/2, y + 16, { align: 'center' });
+  });
+  y += 24;
+
+  // ── NEW LISTINGS THIS WEEK BY GAME ──
+  checkY(40);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...DARK);
+  doc.text(`New Listings This Week (${currentWeek})`, margin, y); y += 5;
+
+  doc.autoTable({
+    startY: y,
+    head: [['Game', 'New listings', 'Breakdown by marketplace']],
+    body: GAMES.map(g => {
+      const gameNew = thisWeekData.filter(l => l.game === g);
+      const breakdown = ALL_MARKETS
+        .filter(m => gameNew.some(l => l.market === m))
+        .map(m => `${m}: ${gameNew.filter(l => l.market === m).length}`)
+        .join(', ');
+      return [g, gameNew.length, breakdown || '—'];
+    }),
+    headStyles: { fillColor: BRAND, textColor: WHITE, fontStyle: 'bold', fontSize: 9 },
+    bodyStyles: { fontSize: 9, textColor: DARK },
+    alternateRowStyles: { fillColor: LIGHT },
+    columnStyles: { 0: { cellWidth: 38 }, 1: { cellWidth: 22, halign: 'center' }, 2: { cellWidth: col - 62 } },
+    margin: { left: margin, right: margin },
+    theme: 'plain',
+  });
+  y = doc.lastAutoTable.finalY + 8;
+
+  // ── REMOVALS THIS WEEK ──
+  checkY(40);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...DARK);
+  doc.text(`Removals This Week (${currentWeek})`, margin, y); y += 5;
+
+  const removedThisWeek = allListings.filter(l => l.week_label === currentWeek && l.status === 'Removed'); // already counted above
+
+  if (removedThisWeek.length === 0) {
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(...MUTED);
+    doc.text('No removals recorded this week.', margin, y + 5);
+    y += 12;
+  } else {
+    doc.autoTable({
+      startY: y,
+      head: [['Reference', 'Game', 'Marketplace', 'Type']],
+      body: removedThisWeek.map(l => [l.ref, l.game, l.market, l.type || '—']),
+      headStyles: { fillColor: [77, 171, 109], textColor: WHITE, fontStyle: 'bold', fontSize: 9 },
+      bodyStyles: { fontSize: 8, textColor: DARK },
+      alternateRowStyles: { fillColor: LIGHT },
+      columnStyles: { 0: { cellWidth: 38 }, 1: { cellWidth: 35 }, 2: { cellWidth: 38 }, 3: { cellWidth: col - 113 } },
+      margin: { left: margin, right: margin },
+      theme: 'plain',
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+
+  // ── TOTAL INFRINGEMENTS BY MARKETPLACE ──
+  checkY(60);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...DARK);
+  doc.text('Total Active Infringements by Marketplace', margin, y); y += 5;
+
+  doc.autoTable({
+    startY: y,
+    head: [['Marketplace', 'Total active', 'Grab the Mic', 'Snort Funny', 'Misheard Music', 'Sorry What?!']],
+    body: ALL_MARKETS.map(m => {
+      const mData = allActive.filter(l => l.market === m);
+      return [
+        m,
+        mData.length,
+        mData.filter(l => l.game === 'Grab the Mic').length,
+        mData.filter(l => l.game === 'Snort Funny').length,
+        mData.filter(l => l.game === 'Misheard Music').length,
+        mData.filter(l => l.game === 'Sorry What?!').length,
+      ];
+    }).filter(row => row[1] > 0),
+    headStyles: { fillColor: BRAND, textColor: WHITE, fontStyle: 'bold', fontSize: 8 },
+    bodyStyles: { fontSize: 8, textColor: DARK, halign: 'center' },
+    alternateRowStyles: { fillColor: LIGHT },
+    columnStyles: { 0: { halign: 'left', cellWidth: 40 }, 1: { cellWidth: 22 } },
+    margin: { left: margin, right: margin },
+    theme: 'plain',
+  });
+  y = doc.lastAutoTable.finalY + 8;
+
+  // ── FOOTER ──
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7);
+    doc.setTextColor(...MUTED);
+    doc.text(`Lucky Egg — Confidential   |   Page ${i} of ${pageCount}`, W/2, 290, { align: 'center' });
+  }
+
+  doc.save(`Lucky-Egg-IP-Report-${currentWeek}.pdf`);
+}
+
+function exportURLs(mkt) {
+  const data = mkt==='all' ? allListings : allListings.filter(l=>l.market===mkt);
+  const withURLs = data.filter(l=>l.url && l.url.trim() !== '');
+  if (!withURLs.length) { alert('No URLs logged for this selection.'); return; }
+  const rows = [['URL','Reference','Game','Marketplace','Type','Status']];
+  withURLs.forEach(l=>rows.push([l.url, l.ref, l.game, l.market, l.type, l.status]));
+  const csv = rows.map(r=>r.map(c=>`"${(c||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download = `ip-urls-${mkt==='all'?'all':mkt.replace(/ /g,'-').toLowerCase()}.csv`;
+  a.click();
+}
+
+function exportCSV(mkt) {
+  const data = mkt==='all' ? allListings : allListings.filter(l=>l.market===mkt);
+  const rows = [['Reference','Game','Marketplace','Type','Status','Week','Notes','URL','Date Added']];
+  data.forEach(l=>rows.push([l.ref,l.game,l.market,l.type,l.status,l.week_label,l.notes,l.url,l.date_added]));
+  const csv = rows.map(r=>r.map(c=>`"${(c||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download = `ip-tracker-${mkt==='all'?'all':mkt.replace(/ /g,'-').toLowerCase()}.csv`;
+  a.click();
+}
+
+// ── TAB SWITCHING ─────────────────────────────────────────────────────────────
+function switchTab(t) {
+  document.querySelectorAll('nav button').forEach((b,i)=>b.classList.toggle('active',['dashboard','log','data','charts'][i]===t));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('tab-'+t).classList.add('active');
+  if(t==='data'){buildSubtabs();renderData();}
+  if(t==='charts') renderCharts();
+  if(t==='dashboard') renderDashboard();
+}
+
+function renderAll() { renderDashboard(); buildSubtabs(); renderData(); }
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+// Delegated click handlers — work even after innerHTML is replaced
+document.addEventListener('click', function(e) {
+  const gamePill = e.target.closest('.game-pill');
+  if (gamePill && gamePill.dataset.marketDash !== undefined) { setMarketDash(gamePill.dataset.marketDash); return; }
+  if (gamePill && gamePill.dataset.status !== undefined) { setStatus(gamePill.dataset.status); return; }
+  if (gamePill && gamePill.dataset.game !== undefined) { setGame(gamePill.dataset.game); return; }
+  const subtab = e.target.closest('.subtab');
+  if (subtab && subtab.dataset.status !== undefined) { setStatus(subtab.dataset.status); return; }
+  if (subtab && subtab.dataset.market !== undefined) { setMarket(subtab.dataset.market); return; }
+});
+
+initAuth();
+</script>
+</body>
+</html>
